@@ -1,0 +1,13 @@
+services:
+  hort-monitor:
+    build: .
+    container_name: hort-presence-monitor
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - POLL_INTERVAL_MS=${POLL_INTERVAL_MS:-120000}
+      - POLL_START_HOUR=${POLL_START_HOUR:-7}
+      - POLL_END_HOUR=${POLL_END_HOUR:-18}
+      - TIMEZONE=${TIMEZONE:-Europe/Berlin}
+    volumes:
+      - ./data:/app/data
