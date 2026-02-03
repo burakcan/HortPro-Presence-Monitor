@@ -104,7 +104,6 @@ async function checkUserPresences(
     if (isKidCompletedToday(userState, kid.id)) {
       continue;
     }
-
     let presences;
     try {
       presences = await client.getPresencesForToday(kid.id);
@@ -167,6 +166,37 @@ async function checkUserPresences(
           );
         }
       }
+    }
+  }
+
+  // Check if cookies were refreshed and save them
+  const updatedCookies = client.getUpdatedCookies();
+  if (updatedCookies) {
+    user.sidCookie = updatedCookies.sidCookie;
+    user.didCookie = updatedCookies.didCookie;
+    setUser(state, user.chatId, user);
+    console.log(`[${user.chatId}] Cookies updated and saved`);
+  }
+}
+
+// Keep all user sessions alive (runs 24/7)
+async function keepSessionsAlive(config: Config): Promise<void> {
+  const state = await loadState();
+  const users = Object.values(state.users);
+
+  if (users.length === 0) {
+    return;
+  }
+
+  for (const user of users) {
+    try {
+      const client = new HortProClient(config, user.sidCookie, user.didCookie);
+      const sessionValid = await client.pingSession();
+      if (!sessionValid) {
+        console.log(`[${user.chatId}] Session ping failed, may be expired`);
+      }
+    } catch (error) {
+      console.error(`[${user.chatId}] Session keepalive error:`, error);
     }
   }
 }
@@ -327,6 +357,16 @@ async function main(): Promise<void> {
         const errorMsg = error instanceof Error ? error.message : String(error);
         statusLines.push(`<b>${kid.first_name}</b>\n  Error: ${errorMsg}`);
       }
+    }
+
+    // Save refreshed cookies if any
+    const updatedCookies = client.getUpdatedCookies();
+    if (updatedCookies) {
+      user.sidCookie = updatedCookies.sidCookie;
+      user.didCookie = updatedCookies.didCookie;
+      setUser(state, user.chatId, user);
+      await saveState(state);
+      console.log(`[${user.chatId}] Cookies updated and saved`);
     }
 
     const header = `<b>Today's Status</b>\n\n`;
@@ -510,7 +550,13 @@ async function main(): Promise<void> {
     await ctx.reply("Use /start to see available commands.");
   });
 
-  // Start polling loop
+  // Session keepalive loop (runs 24/7 to prevent session expiration)
+  const keepaliveIntervalMs = 5 * 60 * 1000; // 5 minutes
+  setInterval(() => {
+    keepSessionsAlive(config).catch(console.error);
+  }, keepaliveIntervalMs);
+
+  // Start polling loop (only during school hours)
   setInterval(() => {
     pollAllUsers(bot, config).catch(console.error);
   }, config.polling.intervalMs);
@@ -520,10 +566,8 @@ async function main(): Promise<void> {
     pollAllUsers(bot, config).catch(console.error);
   }, 5000);
 
-  console.log(`Polling every ${config.polling.intervalMs / 1000} seconds`);
-  console.log(
-    `Active hours: ${config.polling.startHour}:00 - ${config.polling.endHour}:00 (${config.timezone})`
-  );
+  console.log(`Session keepalive: every 5 minutes (24/7)`);
+  console.log(`Presence polling: every ${config.polling.intervalMs / 1000} seconds (${config.polling.startHour}:00 - ${config.polling.endHour}:00 ${config.timezone})`);
 
   // Start bot
   bot.start({

@@ -5,6 +5,7 @@ export class HortProClient {
   private config: Config;
   private sidCookie: string;
   private didCookie: string;
+  private cookiesUpdated = false;
 
   constructor(config: Config, sidCookie: string, didCookie: string) {
     this.config = config;
@@ -32,6 +33,56 @@ export class HortProClient {
     };
   }
 
+  private updateCookiesFromResponse(response: Response): void {
+    const setCookies = response.headers.getSetCookie?.() || [];
+
+    for (const cookie of setCookies) {
+      if (cookie.startsWith("sid-hep=")) {
+        const match = cookie.match(/^sid-hep=([^;]+)/);
+        if (match && match[1] !== this.sidCookie) {
+          console.log("[HortPro] Session cookie refreshed");
+          this.sidCookie = match[1];
+          this.cookiesUpdated = true;
+        }
+      } else if (cookie.startsWith("did-hep=")) {
+        const match = cookie.match(/^did-hep=([^;]+)/);
+        if (match && match[1] !== this.didCookie) {
+          console.log("[HortPro] Device cookie refreshed");
+          this.didCookie = match[1];
+          this.cookiesUpdated = true;
+        }
+      }
+    }
+  }
+
+  // Returns updated cookies if they changed, null otherwise
+  getUpdatedCookies(): { sidCookie: string; didCookie: string } | null {
+    if (this.cookiesUpdated) {
+      this.cookiesUpdated = false;
+      return { sidCookie: this.sidCookie, didCookie: this.didCookie };
+    }
+    return null;
+  }
+
+  // Ping session to keep it alive (browser does this on every page load)
+  async pingSession(): Promise<boolean> {
+    const url = `${this.config.hortpro.baseUrl}/api/user/session?_dc=${Date.now()}`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: this.getHeaders(),
+    });
+
+    this.updateCookiesFromResponse(response);
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const data = await response.json();
+    return data.success === true;
+  }
+
   async getKids(): Promise<Kid[]> {
     const url = `${this.config.hortpro.baseUrl}/api/kids`;
 
@@ -39,6 +90,8 @@ export class HortProClient {
       method: "GET",
       headers: this.getHeaders(),
     });
+
+    this.updateCookiesFromResponse(response);
 
     if (!response.ok) {
       const text = await response.text();
@@ -84,6 +137,8 @@ export class HortProClient {
         Cookie: `selKidId=${kidId.substring(0, 8)}; sid-hep=${this.sidCookie}; did-hep=${this.didCookie}`,
       },
     });
+
+    this.updateCookiesFromResponse(response);
 
     if (!response.ok) {
       const text = await response.text();
