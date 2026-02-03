@@ -2,6 +2,7 @@
   "name": "hort-presence-monitor",
   "version": "1.0.0",
   "description": "Telegram bot to monitor hortpro presence updates",
+  "license": "MIT",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
